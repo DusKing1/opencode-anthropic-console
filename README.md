@@ -3,7 +3,9 @@
 [![npm](https://img.shields.io/npm/v/opencode-anthropic-console.svg)](https://www.npmjs.com/package/opencode-anthropic-console)
 [![license](https://img.shields.io/github/license/DusKing1/opencode-anthropic-console)](./LICENSE)
 
-An **opt-in companion plugin** for [`@ex-machina/opencode-anthropic-auth`](https://github.com/ex-machina-co/opencode-anthropic-auth). It fills in the Claude Code client-attestation transforms on the **manual API-key** path for the subset of `sk-ant-api03-...` keys that require them — typically Anthropic Enterprise / Claude-Code-scoped keys.
+An **opt-in companion plugin** for [`@ex-machina/opencode-anthropic-auth`](https://github.com/ex-machina-co/opencode-anthropic-auth). It fills in the Claude Code client-attestation transforms for the subset of `sk-ant-api03-...` keys that require them — typically Anthropic Enterprise / Claude-Code-scoped keys.
+
+Both of `@ex-machina/opencode-anthropic-auth`'s API-key-oriented login flows — **"Create an API Key"** (which OAuths into Console and exchanges for an `sk-ant-...` key) and **"Manually enter API Key"** (paste-in) — end up with the credential stored as `auth.type === 'api'`, and `@ex-machina/opencode-anthropic-auth`'s request-time loader is a no-op on that branch. For regular Console keys that's fine; for attestation-strict keys every request silently fails with `429 rate_limit_error: "Error"`.
 
 This plugin is **not a replacement** for `@ex-machina/opencode-anthropic-auth`. Install it alongside only if you need it.
 
@@ -11,34 +13,39 @@ This plugin is **not a replacement** for `@ex-machina/opencode-anthropic-auth`. 
 
 You need this plugin **only if all of the following are true**:
 
-1. You authenticate opencode with an Anthropic API key via `@ex-machina/opencode-anthropic-auth`'s **"Manually enter API Key"** option (not OAuth).
+1. Your opencode Anthropic credential is an API key — either via `@ex-machina/opencode-anthropic-auth`'s **"Create an API Key"** flow (OAuth into Console, exchange for an `sk-ant-...` key) or its **"Manually enter API Key"** option (paste-in). Both end up stored as `auth.type === 'api'`. (Pro/Max OAuth is unaffected — `@ex-machina/opencode-anthropic-auth` handles that itself.)
 2. Your requests come back with `429 rate_limit_error: "Error"` (the literal word `"Error"`, not a real rate-limit message).
 
 That error is Anthropic's server-side attestation rejection. It's the signal that your key is Claude-Code-scoped / Enterprise-scoped and enforces strict client fingerprinting. In that case, **install this plugin alongside `@ex-machina/opencode-anthropic-auth`**.
 
-If your manual API key already works without this plugin (most regular Console keys do), **you don't need it. Skip it.**
+If your API key already works without this plugin (most regular Console keys do), **you don't need it. Skip it.**
 
 ## Why `@ex-machina/opencode-anthropic-auth` alone isn't enough for attested keys
 
-`@ex-machina/opencode-anthropic-auth` applies Claude Code's full attestation transforms (user-agent spoofing, tool-name PascalCasing + `mcp_` prefixing, system-prompt rewriting, `?beta=true`, billing header, etc.) **only on its OAuth branches** — the "Claude Pro/Max" flow and the "Create API Key" flow.
+`@ex-machina/opencode-anthropic-auth`'s `loader` gates every transform on `auth.type === 'oauth'`. That's true only for **Claude Pro/Max** — the one flow where opencode stores an OAuth access/refresh token pair as the credential.
 
-When you pick **"Manually enter API Key"**, its loader returns an empty object and applies **no transforms** — by design, because regular Console keys don't need any. Attested keys, however, do.
+Its two API-key flows are different:
 
-This plugin activates only on `auth.type === "api"` and applies the missing pipeline, while leaving the other plugin's OAuth paths completely untouched.
+- **"Create an API Key"** runs an OAuth handshake against Console and then immediately exchanges the access token for a long-lived `sk-ant-api03-...` key. The exchanged key is what gets stored. At request time, `auth.type === 'api'`.
+- **"Manually enter API Key"** stores the pasted key directly. At request time, `auth.type === 'api'`.
+
+In both cases the loader falls through to `return {}` — no transforms, no header spoofing, no system-prompt rewrite, no `?beta=true`, no tool-name prefixing. **This is by design**: for regular Console keys there's no attestation to satisfy. For Enterprise / Claude-Code-scoped keys, though, it leaves every request un-fingerprinted, and Anthropic's server rejects them.
+
+This plugin activates only on `auth.type === 'api'` and applies the missing pipeline, leaving Pro/Max OAuth completely untouched.
 
 ## Scope / matrix
 
-| Your auth flow in opencode | `@ex-machina/opencode-anthropic-auth` | This plugin |
-|---|---|---|
-| Claude Pro/Max (OAuth)             | full transforms  | skipped (`return {}`) |
-| Create API Key (OAuth → key)       | full transforms  | skipped (`return {}`) |
-| **Manually enter API Key** (attested) | **passthrough, no transforms** | **full transforms** |
+| Login flow | Stored `auth.type` | `@ex-machina/opencode-anthropic-auth` | This plugin |
+|---|---|---|---|
+| Claude Pro/Max | `oauth` | full transforms | skipped (`return {}`) |
+| **Create an API Key** | `api` | **passthrough, no transforms** | **full transforms** |
+| **Manually enter API Key** | `api` | **passthrough, no transforms** | **full transforms** |
 
 Because each plugin activates on a distinct `auth.type`, they never collide at the request level.
 
 ## Why not just open a PR to `@ex-machina/opencode-anthropic-auth`?
 
-Fair question. The short answer is that this plugin's behavior is **incompatible with the upstream's design contract** for its manual-API-key path, so merging upstream would regress every existing user of that path.
+Fair question. The short answer is that this plugin's behavior is **incompatible with the upstream's design contract** for its `auth.type === 'api'` branch (which covers both the "Create an API Key" and "Manually enter API Key" flows), so merging upstream would regress every existing user of those flows.
 
 The concrete incompatibilities:
 
@@ -110,7 +117,7 @@ On Windows, use forward slashes or escape the backslashes:
 
 ### About plugin order
 
-opencode deduplicates each plugin's `auth.methods` array by provider ID, so **the last plugin to register for `anthropic` wins the `opencode auth login anthropic` menu**. Listing `@ex-machina/opencode-anthropic-auth` **after** this plugin (as shown above) lets its richer menu (Claude Pro/Max, Create API Key, Manually enter API Key) drive the login flow. Both plugins' loaders still run regardless of order, so the attestation transforms still apply on the manual-API-key branch.
+opencode deduplicates each plugin's `auth.methods` array by provider ID, so **the last plugin to register for `anthropic` wins the `opencode auth login anthropic` menu**. Listing `@ex-machina/opencode-anthropic-auth` **after** this plugin (as shown above) lets its richer menu (Claude Pro/Max, Create an API Key, Manually enter API Key) drive the login flow. Both plugins' loaders still run regardless of order, so the attestation transforms still apply on the `auth.type === 'api'` branch.
 
 This plugin also ships a minimal stand-alone "Console API Key" login method so it remains usable without `@ex-machina/opencode-anthropic-auth` installed — but the recommended deployment is both plugins together.
 
@@ -121,7 +128,7 @@ This plugin also ships a minimal stand-alone "Console API Key" login method so i
 
    ```bash
    opencode auth login anthropic
-   # pick "Manually enter API Key" (from @ex-machina/opencode-anthropic-auth)
+   # pick "Create an API Key" or "Manually enter API Key" (both via @ex-machina/opencode-anthropic-auth)
    # or "Console API Key" (this plugin's fallback)
    # paste your sk-ant-api03-... key
    ```
