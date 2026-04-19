@@ -1,0 +1,58 @@
+{
+  "name": "opencode-anthropic-console",
+  "version": "0.1.0",
+  "description": "opencode plugin for Anthropic Console API keys (sk-ant-api03-...) that require Claude Code client attestation.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "clean": "node -e \"import('node:fs').then(f => f.rmSync('dist', {recursive: true, force: true}))\"",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "console",
+    "api-key"
+  ],
+  "author": "Hugo Chiang",
+  "license": "MIT",
+  "homepage": "https://github.com/DusKing1/opencode-anthropic-console#readme",
+  "bugs": {
+    "url": "https://github.com/DusKing1/opencode-anthropic-console/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DusKing1/opencode-anthropic-console.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "*"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.4.7",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
