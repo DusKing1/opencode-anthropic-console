@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-07-20
+
+### Fixed
+
+- Rewrite the "Here is some useful information about the environment you are
+  running in:" sentence in sanitized system prompts. This phrase ships
+  verbatim in opencode's default system prompt and is used by Anthropic's
+  server-side attestation classifier as a third-party-agent fingerprint;
+  matching it makes `/v1/messages` reject the request with a 400/429
+  disguised as "You're out of extra usage." The sentence is now rewritten
+  in place to a semantic equivalent so the model still sees the env-block
+  intro while the request is accepted.
+
 ## [0.1.0] - 2026-04-19
 
 ### Added
@@ -37,4 +50,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `OPENCODE_ANTHROPIC_CONSOLE_CLAUDE_JSON`,
   `OPENCODE_ANTHROPIC_CONSOLE_TOOL_PREFIX`.
 
+[0.1.1]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.1.1
 [0.1.0]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.1.0

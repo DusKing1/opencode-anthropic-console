@@ -1,6 +1,6 @@
 {
   "name": "opencode-anthropic-console",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "opencode plugin for Anthropic Console API keys (sk-ant-api03-...) that require Claude Code client attestation.",
   "type": "module",
   "main": "./dist/index.js",
