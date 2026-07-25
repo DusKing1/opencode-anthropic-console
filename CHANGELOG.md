@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-25
+
+### Fixed
+
+- Allow Opus 5 to proactively use OpenCode subagents when delegation or
+  parallel investigation would materially improve the result, while avoiding
+  trivial delegation and keeping workflows and deep research opt-in.
+
 ## [0.2.0] - 2026-07-25
 
 ### Changed
@@ -73,7 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `OPENCODE_ANTHROPIC_CONSOLE_CLAUDE_JSON`,
   `OPENCODE_ANTHROPIC_CONSOLE_TOOL_PREFIX`.
 
-[Unreleased]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.2.1
 [0.2.0]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.2.0
 [0.1.1]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.1.1
 [0.1.0]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.1.0
