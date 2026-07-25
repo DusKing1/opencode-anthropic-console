@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode-ai/plugin"
+import { randomUUID } from "node:crypto"
 import {
   createStrippedStream,
   isInsecure,
@@ -61,20 +62,27 @@ export const AnthropicConsoleAuthPlugin: Plugin = async () => {
         // Defer OAuth to ex-machina (or any other OAuth-handling plugin).
         if (auth.type !== "api") return {}
 
+        const sessionID = randomUUID()
+
         return {
           // Let opencode's Anthropic SDK populate x-api-key from this value.
           apiKey: auth.key,
 
           async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
             const headers = mergeHeaders(input, init)
-            setApiKeyHeaders(headers)
+            headers.delete("x-session-affinity")
+            headers.delete("x-session-id")
+            headers.delete("x-parent-session-id")
 
-            let body = init?.body
-            if (typeof body === "string") {
-              body = rewriteRequestBody(body)
-            }
+            setApiKeyHeaders(headers)
+            headers.set("x-claude-code-session-id", sessionID)
 
             const rewritten = rewriteUrl(input)
+
+            let body = init?.body
+            if (rewritten.url?.pathname === "/v1/messages" && typeof body === "string") {
+              body = rewriteRequestBody(body, sessionID)
+            }
 
             const fetchInit: RequestInit = {
               ...init,

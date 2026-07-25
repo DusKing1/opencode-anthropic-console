@@ -1,14 +1,11 @@
 import {
-  CLAUDE_CODE_IDENTITY,
-  OPENCODE_IDENTITY_PREFIX,
-  PARAGRAPH_REMOVAL_ANCHORS,
   REQUIRED_BETAS,
-  TEXT_REPLACEMENTS,
   TOOL_PREFIX,
   USE_MCP_PREFIX,
   USER_AGENT,
 } from "./constants.js"
 import { getClaudeIdentity } from "./claude-identity.js"
+import { composeClaudeCodeSystem } from "./system-transform.js"
 
 // ---------------------------------------------------------------------------
 // Header helpers
@@ -110,7 +107,7 @@ export function rewriteUrl(
     url.protocol = base.protocol
     url.host = base.host
   }
-  if (url.pathname === "/v1/messages" && !url.searchParams.has("beta")) {
+  if (url.pathname === "/v1/messages") {
     url.searchParams.set("beta", "true")
   }
   if (url.href === original) return { input, url }
@@ -177,71 +174,19 @@ export function stripToolPrefix(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// System prompt sanitization / identity injection
-// ---------------------------------------------------------------------------
-
-function sanitizeSystemText(text: string): string {
-  const paragraphs = text.split(/\n\n+/)
-  const kept = paragraphs.filter((p) => {
-    if (p.includes(OPENCODE_IDENTITY_PREFIX)) return false
-    for (const anchor of PARAGRAPH_REMOVAL_ANCHORS) {
-      if (p.includes(anchor)) return false
-    }
-    return true
-  })
-  let result = kept.join("\n\n")
-  for (const rule of TEXT_REPLACEMENTS) {
-    if (typeof rule.match === "string") {
-      result = result.split(rule.match).join(rule.replacement)
-    } else {
-      result = result.replace(rule.match, rule.replacement)
-    }
-  }
-  return result.trim()
-}
-
-type SystemBlock = { type: "text"; text: string } & Record<string, unknown>
-
-function prependClaudeCodeIdentity(system: unknown): SystemBlock[] {
-  const identityBlock: SystemBlock = { type: "text", text: CLAUDE_CODE_IDENTITY }
-
-  if (system == null) return [identityBlock]
-
-  if (typeof system === "string") {
-    const sanitized = sanitizeSystemText(system)
-    if (!sanitized || sanitized === CLAUDE_CODE_IDENTITY) return [identityBlock]
-    return [identityBlock, { type: "text", text: sanitized }]
-  }
-
-  if (isRecord(system)) {
-    const text = typeof system.text === "string" ? sanitizeSystemText(system.text) : ""
-    return [identityBlock, { ...system, type: "text", text }]
-  }
-
-  if (!Array.isArray(system)) return [identityBlock]
-
-  const sanitized: SystemBlock[] = system.map((item) => {
-    if (typeof item === "string") return { type: "text", text: sanitizeSystemText(item) }
-    if (isRecord(item) && item.type === "text" && typeof item.text === "string") {
-      return { ...item, type: "text", text: sanitizeSystemText(item.text) }
-    }
-    return { type: "text", text: String(item) }
-  })
-
-  if (sanitized[0]?.text === CLAUDE_CODE_IDENTITY) return sanitized
-  return [identityBlock, ...sanitized]
-}
-
-// ---------------------------------------------------------------------------
 // Body rewrite
 // ---------------------------------------------------------------------------
 
-function injectMetadata(parsed: AnyRecord): void {
+function injectMetadata(parsed: AnyRecord, sessionID: string): void {
   const identity = getClaudeIdentity()
   const existing = isRecord(parsed.metadata) ? parsed.metadata : {}
   parsed.metadata = {
     ...existing,
-    user_id: typeof existing.user_id === "string" && existing.user_id ? existing.user_id : identity.userID,
+    user_id: JSON.stringify({
+      device_id: identity.userID,
+      account_uuid: "",
+      session_id: sessionID,
+    }),
   }
 }
 
@@ -254,17 +199,57 @@ function stripForbiddenFields(parsed: AnyRecord): void {
   delete parsed.temperature
 }
 
-export function rewriteRequestBody(body: string): string {
+function normalizeCacheBreakpoints(parsed: AnyRecord): void {
+  delete parsed.cache_control
+
+  if (Array.isArray(parsed.tools)) {
+    for (const tool of parsed.tools) {
+      if (isRecord(tool)) delete tool.cache_control
+    }
+  }
+
+  const messageBreakpoints: AnyRecord[] = []
+  if (Array.isArray(parsed.messages)) {
+    for (const message of parsed.messages) {
+      if (!isRecord(message)) continue
+      if (message.cache_control != null) messageBreakpoints.push(message)
+      if (!Array.isArray(message.content)) continue
+      for (const block of message.content) {
+        if (isRecord(block) && block.cache_control != null) {
+          messageBreakpoints.push(block)
+        }
+      }
+    }
+  }
+
+  const removeCount = Math.max(0, messageBreakpoints.length - 2)
+  for (let index = 0; index < removeCount; index++) {
+    delete messageBreakpoints[index]?.cache_control
+  }
+}
+
+export function rewriteRequestBody(
+  body: string,
+  sessionID: string,
+): string {
+  let parsed: unknown
   try {
-    const parsed = JSON.parse(body) as AnyRecord
-    parsed.system = prependClaudeCodeIdentity(parsed.system)
-    injectMetadata(parsed)
-    stripForbiddenFields(parsed)
-    prefixToolNamesInPlace(parsed)
-    return JSON.stringify(parsed)
+    parsed = JSON.parse(body)
   } catch {
     return body
   }
+
+  if (!isRecord(parsed)) return body
+  parsed.system = composeClaudeCodeSystem({
+    system: parsed.system,
+    model: parsed.model,
+    messages: parsed.messages,
+  })
+  injectMetadata(parsed, sessionID)
+  stripForbiddenFields(parsed)
+  prefixToolNamesInPlace(parsed)
+  normalizeCacheBreakpoints(parsed)
+  return JSON.stringify(parsed)
 }
 
 // ---------------------------------------------------------------------------
