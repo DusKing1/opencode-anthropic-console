@@ -9,13 +9,14 @@
  * heuristics.
  */
 
-export const CLAUDE_CODE_VERSION = "2.1.114"
+export const CLAUDE_CODE_VERSION = "2.1.220"
+export const CLAUDE_CODE_ENTRYPOINT = "sdk-cli"
 
 /**
  * user-agent header sent by the official Claude Code CLI.
- * The "(external, cli)" suffix is part of the attestation signal.
+ * The "(external, sdk-cli)" suffix is part of the attestation signal.
  */
-export const USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`
+export const USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, sdk-cli)`
 
 /**
  * Beta flags the Claude Code CLI typically enables. opencode may already
@@ -24,12 +25,18 @@ export const USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`
 export const REQUIRED_BETAS = [
   "claude-code-20250219",
   "interleaved-thinking-2025-05-14",
-  "fine-grained-tool-streaming-2025-05-14",
-]
+  "thinking-token-count-2026-05-13",
+  "context-management-2025-06-27",
+  "prompt-caching-scope-2026-01-05",
+  "mid-conversation-system-2026-04-07",
+  "advisor-tool-2026-03-01",
+  "effort-2025-11-24",
+  "fallback-credit-2026-06-01",
+] as const
 
 /**
- * First sentence of Claude Code's system prompt. Anthropic's attestation
- * checks that the system prompt *begins* with this exact string.
+ * Claude Code identity block. In current traffic it follows the billing block
+ * and precedes the harness-specific system instructions.
  */
 export const CLAUDE_CODE_IDENTITY =
   "You are a Claude agent, built on Anthropic's Claude Agent SDK."
@@ -73,11 +80,9 @@ export const TEXT_REPLACEMENTS: Array<{ match: RegExp | string; replacement: str
  * Tool name prefix applied to every outgoing tool name, matching the
  * scheme Claude Code uses to namespace MCP-style tools.
  *
- * Ex-machina's OAuth plugin uses this same prefix and Anthropic accepts
- * it on the OAuth path. On the API-key path the attestation is stricter
- * and may require exact Claude-Code-native tool names (Bash, Read, …)
- * rather than `mcp_`-prefixed ones. Toggle {@link USE_MCP_PREFIX} to
- * disable the prefix once we have mitmproxy evidence either way.
+ * Ex-machina's OAuth plugin uses this same prefix for opencode-provided tools.
+ * Claude Code's own built-ins remain unprefixed, while third-party/MCP-style
+ * tools use a namespace; this plugin's tools belong to the latter category.
  */
 export const TOOL_PREFIX = "mcp_"
 
@@ -88,29 +93,3 @@ export const TOOL_PREFIX = "mcp_"
  */
 export const USE_MCP_PREFIX =
   process.env.OPENCODE_ANTHROPIC_CONSOLE_TOOL_PREFIX !== "0"
-
-/**
- * Canonical 17-tool set shipped by the Claude Code CLI, for reference.
- * Not currently enforced — kept here so the transform can be upgraded
- * to "exact match" mode once we verify against a real Claude Code
- * request capture.
- */
-export const CLAUDE_CODE_TOOLS = [
-  "Bash",
-  "BashOutput",
-  "KillShell",
-  "Read",
-  "Write",
-  "Edit",
-  "Glob",
-  "Grep",
-  "WebFetch",
-  "WebSearch",
-  "TodoWrite",
-  "Task",
-  "NotebookEdit",
-  "ExitPlanMode",
-  "SlashCommand",
-  "MultiEdit",
-  "ListMcpResources",
-] as const
