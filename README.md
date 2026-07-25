@@ -51,9 +51,9 @@ The concrete incompatibilities:
 
 1. **Upstream's passthrough is intentional, not missing.** For `auth.type === "api"`, `@ex-machina/opencode-anthropic-auth` returns `{}` on purpose. Regular Console keys (`sk-ant-api03-...`) work fine without any transforms — so the plugin deliberately stays out of the way. Turning attestation transforms on for everyone upstream would silently change behavior for people whose keys currently work, for zero benefit to them and non-zero risk of breakage.
 
-2. **Body mutation of user-facing fields.** This plugin strips `temperature` from every request (Claude Code never sends one, and strict-attestation servers reject requests that do). The upstream doesn't touch `temperature`. Doing this upstream would silently drop a field users might legitimately be setting.
+2. **Body mutation of user-facing fields.** This plugin strips `temperature` from every `/v1/messages` request body (Claude Code never sends one, and strict-attestation servers reject requests that do). The upstream doesn't touch `temperature`. Doing this upstream would silently drop a field users might legitimately be setting.
 
-3. **Home-directory file I/O.** This plugin reads `~/.claude.json` on every request to resolve `metadata.user_id`. The upstream has no such dependency. Adopting it upstream would add a new side channel ("plugin reads files outside the project") that a general-purpose auth plugin probably shouldn't have by default.
+3. **Home-directory file I/O.** On the first attested request, this plugin reads and caches the device ID from `~/.claude.json` before constructing `metadata.user_id`. The upstream has no such dependency. Adopting it upstream would add a new side channel ("plugin reads files outside the project") that a general-purpose auth plugin probably shouldn't have by default.
 
 4. **Extra headers.** This plugin sends `x-app: cli`; the upstream doesn't. Anthropic's server behavior can differ based on header presence, so adding it upstream risks regressing the OAuth flow that currently works.
 
@@ -68,7 +68,8 @@ So the split isn't a fork or a disagreement — it's the right shape for the pro
 - opencode with the v1 plugin API (`@opencode-ai/plugin`)
 - Node `>= 20`
 - `@ex-machina/opencode-anthropic-auth` installed alongside (so its "Manually enter API Key" menu entry exists and so its OAuth flows keep working)
-- A working Claude Code install is optional but recommended — see [Identity source](#identity-source)
+- A working Claude Code install that has been run at least once, or an explicit
+  `OPENCODE_ANTHROPIC_CONSOLE_USER_ID` — see [Identity source](#identity-source)
 
 ## Install
 
@@ -143,13 +144,23 @@ This plugin also ships a minimal stand-alone "Console API Key" login method so i
 
 ## Identity source
 
-Anthropic's attestation requires a `metadata.user_id` on every request. This plugin resolves one in the following order (first hit wins, result is cached):
+Anthropic's attestation requires a Claude Code device identity on every request.
+The plugin resolves the 64-character device ID in the following order (first hit
+wins, result is cached):
 
 1. `OPENCODE_ANTHROPIC_CONSOLE_USER_ID` env var
 2. `userID` field in `~/.claude.json` (written automatically by the Claude Code CLI on first login)
-3. A deterministic synthetic value derived from `$USERNAME`/`$HOSTNAME` (fallback — prefer the real Claude Code value)
 
-If you don't run Claude Code on this machine, run it once (`claude -p hi`) to create the file, or set the env var manually:
+Each loaded plugin provider uses one Claude-style session UUID and sends Claude
+Code's current JSON-string shape:
+
+```json
+{"device_id":"<64 hex>","account_uuid":"","session_id":"<UUID>"}
+```
+
+Synthetic machine fingerprints are no longer generated. If you don't run
+Claude Code on this machine, run it once (`claude -p hi`) to create the file,
+or set the env var manually:
 
 ```bash
 export OPENCODE_ANTHROPIC_CONSOLE_USER_ID=$(jq -r .userID ~/.claude.json)
@@ -169,13 +180,16 @@ On every outgoing request to `/v1/messages`:
 
 | Transform | Reason |
 |-----------|--------|
-| Set `user-agent: claude-cli/<version> (external, cli)` | Claude Code CLI identity |
+| Set `user-agent: claude-cli/2.1.220 (external, sdk-cli)` | Captured Claude Code 2.1.220 identity |
 | Set `x-app: cli` | Distinguishes CLI traffic from web Claude (not sent by `@ex-machina/opencode-anthropic-auth`) |
-| Merge `anthropic-beta` with Claude Code's required beta flags | Matches Claude Code's feature surface |
+| Replace OpenCode's session headers with `x-claude-code-session-id` | Uses the same loader-scoped Claude UUID as `metadata.user_id` without leaking OpenCode's raw session ID upstream |
+| Merge `anthropic-beta` with Claude Code 2.1.220's beta flags | Matches the captured client feature surface |
 | Append `?beta=true` to the URL | Claude Code always sends this |
-| Prepend the Claude Code identity block to `system[]` | The first paragraph of `system` must be Claude Code's identity |
+| Derive the billing block from the first user text, then prepend it and the Claude Code identity block to `system[]` | Matches Claude Code 2.1.220 system ordering and request-specific version suffix |
+| Add the captured Claude Code 2.1.220 Opus 5 harness core for `claude-opus-5` | Carries the current scope, delivery, context-management, and correction guidance without hard-coding machine-specific context |
 | Strip opencode-branded paragraphs from `system[]` | Otherwise two agents appear to speak |
-| Inject `metadata.user_id` | Required by attestation (not injected by `@ex-machina/opencode-anthropic-auth`) |
+| Inject structured `metadata.user_id` with device and loader-session IDs | Matches the current Claude Code API-key request shape |
+| Keep the identity and Opus harness cache points, remove retained system/tool cache points, and preserve only the latest two message cache points | Matches Claude Code's four-breakpoint limit without dropping OpenCode context |
 | Remove `temperature` from the body | Claude Code never sends one; strict-attestation servers reject it |
 | Prefix tool names with `mcp_` + PascalCase (e.g. `mcp_Bash`) | Matches Claude Code's tool naming convention |
 | Strip the `mcp_` prefix from streaming SSE responses | So opencode's tool router recognises the names |
@@ -186,7 +200,7 @@ Keeps `x-api-key` as-is (standard Console key auth).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `OPENCODE_ANTHROPIC_CONSOLE_USER_ID` | — | Override `metadata.user_id` |
+| `OPENCODE_ANTHROPIC_CONSOLE_USER_ID` | — | Override the 64-hex Claude Code device ID embedded in `metadata.user_id` |
 | `OPENCODE_ANTHROPIC_CONSOLE_CLAUDE_JSON` | `~/.claude.json` | Override Claude Code config path |
 | `OPENCODE_ANTHROPIC_CONSOLE_TOOL_PREFIX` | `1` | Set to `0` to send tool names **without** the `mcp_` prefix (for A/B testing attestation) |
 | `ANTHROPIC_BASE_URL` | — | Route requests to a proxy or custom gateway |
@@ -196,13 +210,13 @@ Keeps `x-api-key` as-is (standard Console key auth).
 
 **Request still fails with `429 rate_limit_error: "Error"`** — Attestation is rejecting some part of the request. Confirm:
 - The plugin is installed and loaded (check `opencode` logs for plugin init).
-- `metadata.user_id` is a 64-character hex string (copy from `~/.claude.json`).
+- The source `userID`/device ID is a 64-character hex string; the emitted `metadata.user_id` is the structured JSON string shown above.
 - Your `CLAUDE_CODE_VERSION` isn't too stale — see [Roadmap](#roadmap).
 - Capture the outgoing request with mitmproxy and diff against a real `claude -p hi` invocation.
 
 **`401 invalid x-api-key`** — The key is wrong or was issued as an OAuth-tied key. Re-issue a Console API key.
 
-**`400 metadata.user_id` error** — The synthetic fallback produced an invalid shape. Set `OPENCODE_ANTHROPIC_CONSOLE_USER_ID` explicitly.
+**Local `ClaudeIdentityError` before a request is sent** — No valid 64-hex device ID was found. Run Claude Code once to populate `~/.claude.json`, fix the configured JSON path, or set `OPENCODE_ANTHROPIC_CONSOLE_USER_ID` to the device ID only (not to the complete JSON string).
 
 **`400 tools does not match`** — Attestation may now require the literal Claude Code tool names instead of opencode's names prefixed with `mcp_`. Try `OPENCODE_ANTHROPIC_CONSOLE_TOOL_PREFIX=0`; if still failing, Claude Code's tool set and opencode's have diverged and deeper name remapping is needed (see Roadmap).
 
@@ -223,9 +237,14 @@ HTTPS_PROXY=http://127.0.0.1:8080 opencode
 
 Any field present in the Claude Code capture but missing or different in the opencode capture is a bug here.
 
+The plugin embeds only the stable Opus 5 harness core observed in a Claude Code
+2.1.220 safe-mode capture. Machine-specific memory paths, repository state,
+language preferences, agents, and skills remain supplied by opencode's retained
+context rather than copied from the capture.
+
+
 ## Roadmap
 
-- [ ] Generate `x-anthropic-billing-header` (`cc_version` / `cc_entrypoint` / `cch`) — `@ex-machina/opencode-anthropic-auth` emits this on OAuth; attestation-strict keys may require it too
 - [ ] Exact Claude Code tool-name matching (not just `mcp_` prefixing)
 - [ ] Periodic self-test that diffs against a recorded Claude Code reference capture
 - [ ] Auto-refresh `CLAUDE_CODE_VERSION` from the installed Claude Code CLI
