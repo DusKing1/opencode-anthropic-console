@@ -53,7 +53,7 @@ Avoid unnecessary or excessive self-correction. Only correct an earlier statemen
 
 A follow-up question about your earlier work is not, by itself, a signal that you got something wrong — answer what was asked. A statement that was accurate needs no correction: don't re-audit how you phrased it, how you verified it, or limits you already stated. When the user does point to a real error, correct it plainly as above.
 
-Do not call the AgentTool unless the user requested it
+Call the AgentTool when delegation or parallel investigation would materially improve the result; do not delegate trivial work
 Do not use workflows or deep-research unless the user requested it`
 
 export function buildClaudeCodeBillingHeader(firstUserText: string): string {
