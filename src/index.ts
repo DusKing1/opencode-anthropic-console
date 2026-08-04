@@ -1,110 +1,227 @@
-import type { Plugin } from "@opencode-ai/plugin"
 import { randomUUID } from "node:crypto"
+import type { AuthOAuthResult, Plugin } from "@opencode-ai/plugin"
+import type { Auth, Provider } from "@opencode-ai/sdk"
+import {
+  createOAuthAuthorization,
+  exchangeOAuthCode,
+  OAuthFlowError,
+  type OAuthCredentials,
+  refreshOAuthToken,
+} from "./oauth.js"
+import {
+  isAllowedOAuthUrl,
+  rewriteOAuthRequestBody,
+  setOAuthHeaders,
+} from "./oauth-transform.js"
 import {
   createStrippedStream,
-  isInsecure,
   mergeHeaders,
   rewriteRequestBody,
   rewriteUrl,
   setApiKeyHeaders,
 } from "./transform.js"
 
-/**
- * opencode plugin for Anthropic **Console API keys** (`sk-ant-api03-...`)
- * provisioned via https://console.anthropic.com/ for Claude Code use.
- *
- * These keys are server-side attested: requests that do not look like they
- * came from the official Claude Code CLI are rejected with a fake
- * `429 rate_limit_error: "Error"`. This plugin rewrites opencode's
- * outgoing Anthropic requests to pass that attestation while preserving
- * the `x-api-key` authentication scheme.
- *
- * Sibling plugin: `@ex-machina/opencode-anthropic-auth` handles the
- * OAuth / Max subscription path. Both can be installed together —
- * this plugin activates only for `auth.type === 'api'` and returns an
- * empty object for OAuth, so ex-machina's loader remains authoritative
- * for the OAuth branch.
- */
-export const AnthropicConsoleAuthPlugin: Plugin = async () => {
+const PROVIDER_ID = "anthropic"
+const REFRESH_SKEW_MS = 5 * 60 * 1000
+
+type GetAuth = () => Promise<Auth>
+type ApiAuth = Extract<Auth, { type: "api" }>
+type OAuthAuth = Extract<Auth, { type: "oauth" }>
+type PluginClient = Parameters<Plugin>[0]["client"]
+
+type RuntimeFailureKind = "auth_changed" | "refresh_poisoned" | "unexpected_origin"
+
+class AnthropicAuthRuntimeError extends Error {
+  constructor(readonly kind: RuntimeFailureKind) {
+    super(`Anthropic authentication runtime error: ${kind}`)
+    this.name = "AnthropicAuthRuntimeError"
+  }
+}
+
+function zeroProviderCosts(provider: Provider): void {
+  for (const model of Object.values(provider.models)) {
+    model.cost = {
+      input: 0,
+      output: 0,
+      cache: { read: 0, write: 0 },
+    }
+  }
+}
+
+async function authorizeOAuth(): Promise<AuthOAuthResult> {
+  const authorization = createOAuthAuthorization()
+  let exchangePromise:
+    | Promise<
+        | { type: "success"; refresh: string; access: string; expires: number }
+        | { type: "failed" }
+      >
+    | undefined
+
+  const complete = async (input: string) => {
+    try {
+      const credentials = await exchangeOAuthCode(input, authorization)
+      return {
+        type: "success" as const,
+        refresh: credentials.refresh,
+        access: credentials.access,
+        expires: credentials.expires,
+      }
+    } catch (error) {
+      if (error instanceof OAuthFlowError) return { type: "failed" as const }
+      throw error
+    }
+  }
+
   return {
-    auth: {
-      provider: "anthropic",
-      // Minimal API-key login flow so this plugin is self-sufficient even
-      // without ex-machina installed. When both plugins are present,
-      // whichever registers last wins the CLI login menu; we recommend
-      // installing ex-machina *after* this plugin so its richer methods
-      // (OAuth + API key) drive `opencode auth login anthropic`.
-      methods: [
-        {
-          type: "api",
-          label: "Console API Key",
-          prompts: [
-            {
-              type: "text",
-              key: "key",
-              message: "Paste your sk-ant-api03-... key from console.anthropic.com",
-              placeholder: "sk-ant-api03-...",
-              validate: (value: string) =>
-                value.startsWith("sk-ant-api03-") ? undefined : "Key must start with sk-ant-api03-",
-            },
-          ],
-          authorize: async (inputs?: Record<string, string>) => {
-            const key = inputs?.key?.trim()
-            if (!key) return { type: "failed" as const }
-            return { type: "success" as const, key }
-          },
-        },
-      ],
-
-      async loader(getAuth) {
-        const auth = await getAuth()
-
-        // Defer OAuth to ex-machina (or any other OAuth-handling plugin).
-        if (auth.type !== "api") return {}
-
-        const sessionID = randomUUID()
-
-        return {
-          // Let opencode's Anthropic SDK populate x-api-key from this value.
-          apiKey: auth.key,
-
-          async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-            const headers = mergeHeaders(input, init)
-            headers.delete("x-session-affinity")
-            headers.delete("x-session-id")
-            headers.delete("x-parent-session-id")
-
-            setApiKeyHeaders(headers)
-            headers.set("x-claude-code-session-id", sessionID)
-
-            const rewritten = rewriteUrl(input)
-
-            let body = init?.body
-            if (rewritten.url?.pathname === "/v1/messages" && typeof body === "string") {
-              body = rewriteRequestBody(body, sessionID)
-            }
-
-            const fetchInit: RequestInit = {
-              ...init,
-              body,
-              headers,
-            }
-
-            // TLS bypass is only honoured when ANTHROPIC_BASE_URL is also set,
-            // so stock console.anthropic.com traffic remains fully verified.
-            if (isInsecure()) {
-              // Node's undici fetch does not honour `rejectUnauthorized` via RequestInit,
-              // so we leave the option documented but rely on the user's NODE_TLS_REJECT_UNAUTHORIZED=0
-              // for custom endpoints. See README for details.
-            }
-
-            const response = await fetch(rewritten.input, fetchInit)
-            return createStrippedStream(response)
-          },
-        }
-      },
+    url: authorization.url,
+    instructions: "Paste the authorization code here:",
+    method: "code",
+    callback(input: string) {
+      exchangePromise ??= complete(input)
+      return exchangePromise
     },
   }
 }
+
+function createApiOptions(getAuth: GetAuth, initial: ApiAuth) {
+  const sessionID = randomUUID()
+  return {
+    apiKey: initial.key,
+    async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      const current = await getAuth()
+      if (current.type !== "api" || current.key !== initial.key) {
+        throw new AnthropicAuthRuntimeError("auth_changed")
+      }
+
+      const headers = mergeHeaders(input, init)
+      headers.delete("x-session-affinity")
+      headers.delete("x-session-id")
+      headers.delete("x-parent-session-id")
+      setApiKeyHeaders(headers)
+      headers.set("x-claude-code-session-id", sessionID)
+
+      const rewritten = rewriteUrl(input)
+      let body = init?.body
+      if (rewritten.url?.pathname === "/v1/messages" && typeof body === "string") {
+        body = rewriteRequestBody(body, sessionID)
+      }
+
+      const response = await fetch(rewritten.input, { ...init, body, headers })
+      return createStrippedStream(response)
+    },
+  }
+}
+
+function createOAuthOptions(getAuth: GetAuth, client: PluginClient) {
+  let refreshPromise: Promise<OAuthAuth | OAuthCredentials> | undefined
+  let poisonedRefresh: string | undefined
+
+  async function currentCredentials(): Promise<OAuthAuth | OAuthCredentials> {
+    const current = await getAuth()
+    if (current.type !== "oauth") throw new AnthropicAuthRuntimeError("auth_changed")
+    if (poisonedRefresh && current.refresh !== poisonedRefresh) poisonedRefresh = undefined
+    if (current.access && current.expires > Date.now() + REFRESH_SKEW_MS) return current
+    if (poisonedRefresh === current.refresh) {
+      throw new AnthropicAuthRuntimeError("refresh_poisoned")
+    }
+
+    if (!refreshPromise) {
+      refreshPromise = (async () => {
+        const fresh = await getAuth()
+        if (fresh.type !== "oauth") throw new AnthropicAuthRuntimeError("auth_changed")
+        if (poisonedRefresh && fresh.refresh !== poisonedRefresh) poisonedRefresh = undefined
+        if (fresh.access && fresh.expires > Date.now() + REFRESH_SKEW_MS) return fresh
+        if (poisonedRefresh === fresh.refresh) {
+          throw new AnthropicAuthRuntimeError("refresh_poisoned")
+        }
+
+        const refresh = fresh.refresh
+        try {
+          const next = await refreshOAuthToken(refresh)
+          const persisted: OAuthAuth = { ...fresh, ...next }
+          await client.auth.set({
+            path: { id: PROVIDER_ID },
+            body: persisted,
+            throwOnError: true,
+          })
+          return persisted
+        } catch (error) {
+          poisonedRefresh = refresh
+          throw error
+        }
+      })().finally(() => {
+        refreshPromise = undefined
+      })
+    }
+
+    return refreshPromise
+  }
+
+  return {
+    apiKey: "",
+    async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      const credentials = await currentCredentials()
+      const rewritten = rewriteUrl(input)
+      if (!isAllowedOAuthUrl(rewritten.url)) {
+        throw new AnthropicAuthRuntimeError("unexpected_origin")
+      }
+
+      const headers = mergeHeaders(input, init)
+      headers.delete("x-session-affinity")
+      headers.delete("x-session-id")
+      headers.delete("x-parent-session-id")
+      setOAuthHeaders(headers, credentials.access)
+
+      let body = init?.body
+      if (rewritten.url?.pathname === "/v1/messages" && typeof body === "string") {
+        body = rewriteOAuthRequestBody(body)
+      }
+
+      const response = await fetch(rewritten.input, { ...init, body, headers })
+      return createStrippedStream(response)
+    },
+  }
+}
+
+/** Complete Anthropic authentication for Claude.ai OAuth and Console API keys. */
+export const AnthropicConsoleAuthPlugin: Plugin = async ({ client }) => ({
+  auth: {
+    provider: PROVIDER_ID,
+    methods: [
+      {
+        type: "oauth",
+        label: "Claude Pro/Max",
+        authorize: authorizeOAuth,
+      },
+      {
+        type: "api",
+        label: "Console API Key",
+        prompts: [
+          {
+            type: "text",
+            key: "key",
+            message: "Paste your sk-ant-api03-... key from console.anthropic.com",
+            placeholder: "sk-ant-api03-...",
+            validate: (value: string) =>
+              value.startsWith("sk-ant-api03-") ? undefined : "Key must start with sk-ant-api03-",
+          },
+        ],
+        authorize: async (inputs?: Record<string, string>) => {
+          const key = inputs?.key?.trim()
+          return key ? { type: "success" as const, key } : { type: "failed" as const }
+        },
+      },
+    ],
+    async loader(getAuth, provider) {
+      const auth = await getAuth()
+      if (auth.type === "api") return createApiOptions(getAuth, auth)
+      if (auth.type === "oauth") {
+        zeroProviderCosts(provider)
+        return createOAuthOptions(getAuth, client)
+      }
+      return {}
+    },
+  },
+})
 
 export default AnthropicConsoleAuthPlugin
