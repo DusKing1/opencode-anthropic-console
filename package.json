@@ -1,7 +1,7 @@
 {
   "name": "opencode-anthropic-console",
-  "version": "0.2.1",
-  "description": "opencode plugin for Anthropic Console API keys (sk-ant-api03-...) that require Claude Code client attestation.",
+  "version": "0.3.0",
+  "description": "Complete OpenCode Anthropic authentication for Claude.ai OAuth and attested Console API keys.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -29,7 +29,10 @@
     "claude",
     "claude-code",
     "console",
-    "api-key"
+    "api-key",
+    "oauth",
+    "claude-pro",
+    "claude-max"
   ],
   "author": "Hugo Chiang",
   "license": "MIT",
