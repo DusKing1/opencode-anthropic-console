@@ -66,7 +66,7 @@ export function setApiKeyHeaders(headers: Headers): Headers {
 // URL helpers
 // ---------------------------------------------------------------------------
 
-function resolveBaseUrl(): URL | null {
+export function resolveBaseUrl(): URL | null {
   const raw = process.env.ANTHROPIC_BASE_URL?.trim()
   if (!raw) return null
   try {
@@ -132,11 +132,11 @@ function unprefixName(name: string): string {
 
 type AnyRecord = Record<string, unknown>
 
-function isRecord(value: unknown): value is AnyRecord {
+export function isRecord(value: unknown): value is AnyRecord {
   return value != null && typeof value === "object" && !Array.isArray(value)
 }
 
-function prefixToolNamesInPlace(parsed: AnyRecord): void {
+export function prefixToolNamesInPlace(parsed: AnyRecord): void {
   const tools = parsed.tools
   if (Array.isArray(tools)) {
     parsed.tools = tools.map((tool) => {
@@ -264,16 +264,31 @@ export function createStrippedStream(response: Response): Response {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
+  let pending = ""
 
   const stream = new ReadableStream({
     async pull(controller) {
-      const { done, value } = await reader.read()
-      if (done) {
-        controller.close()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) {
+          pending += decoder.decode()
+          if (pending) controller.enqueue(encoder.encode(stripToolPrefix(pending)))
+          controller.close()
+          return
+        }
+
+        pending += decoder.decode(value, { stream: true })
+        const boundary = pending.lastIndexOf("\n")
+        if (boundary < 0) continue
+
+        const complete = pending.slice(0, boundary + 1)
+        pending = pending.slice(boundary + 1)
+        controller.enqueue(encoder.encode(stripToolPrefix(complete)))
         return
       }
-      const text = decoder.decode(value, { stream: true })
-      controller.enqueue(encoder.encode(stripToolPrefix(text)))
+    },
+    async cancel(reason) {
+      await reader.cancel(reason)
     },
   })
 

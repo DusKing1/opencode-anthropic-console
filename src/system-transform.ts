@@ -69,6 +69,7 @@ function extractFirstUserText(messages: unknown): string | undefined {
 function buildSystemPrefix(
   model: unknown,
   billingHeader: string,
+  includeHarness: boolean,
 ): SystemBlock[] {
   const prefix: SystemBlock[] = [{ type: "text", text: billingHeader }]
   prefix.push({
@@ -76,7 +77,7 @@ function buildSystemPrefix(
     text: CLAUDE_CODE_IDENTITY,
     cache_control: { type: "ephemeral" },
   })
-  if (model === CLAUDE_CODE_OPUS_5_MODEL) {
+  if (includeHarness && model === CLAUDE_CODE_OPUS_5_MODEL) {
     prefix.push({
       type: "text",
       text: CLAUDE_CODE_OPUS_5_HARNESS,
@@ -86,13 +87,14 @@ function buildSystemPrefix(
   return prefix
 }
 
-export function composeClaudeCodeSystem(
+function composeSystem(
   input: ClaudeCodeSystemInput,
+  includeHarness: boolean,
 ): SystemBlock[] {
   const billingHeader = buildClaudeCodeBillingHeader(
     extractFirstUserText(input.messages) ?? "",
   )
-  const prefix = buildSystemPrefix(input.model, billingHeader)
+  const prefix = buildSystemPrefix(input.model, billingHeader, includeHarness)
   if (input.system == null) return prefix
 
   if (typeof input.system === "string") {
@@ -130,4 +132,12 @@ export function composeClaudeCodeSystem(
     }
   }
   return [...prefix, ...sanitized]
+}
+
+export function composeClaudeCodeSystem(input: ClaudeCodeSystemInput): SystemBlock[] {
+  return composeSystem(input, true)
+}
+
+export function composeClaudeCodeOAuthSystem(input: ClaudeCodeSystemInput): SystemBlock[] {
+  return composeSystem(input, false)
 }
