@@ -34,6 +34,12 @@ export const REQUIRED_BETAS = [
   "fallback-credit-2026-06-01",
 ] as const
 
+/** OAuth subscription traffic uses a smaller, separately captured beta set. */
+export const OAUTH_REQUIRED_BETAS = [
+  "oauth-2025-04-20",
+  "interleaved-thinking-2025-05-14",
+] as const
+
 /**
  * Claude Code identity block. In current traffic it follows the billing block
  * and precedes the harness-specific system instructions.
