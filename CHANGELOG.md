@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-04
+
+### Added
+
+- Add first-party Claude.ai Pro/Max OAuth login with PKCE, hosted callback code
+  exchange, and the current `platform.claude.com` token endpoint.
+- Add one-owner OAuth refresh coordination with a five-minute expiry skew,
+  rotated-token persistence, fallback when refresh responses omit a new token,
+  and fail-closed handling after ambiguous refresh or persistence failures.
+
+### Changed
+
+- Expand the plugin from an API-key companion into the sole Anthropic auth
+  provider for both `auth.type === "api"` and `auth.type === "oauth"`.
+- Give OAuth requests a separate compatibility profile: Bearer auth, OAuth beta
+  flags, the Claude Code 2.1.220 user agent, prompt/tool mapping, and no
+  API-key-only device metadata, `x-app`, session header, cache normalization, or
+  Opus harness injection.
+- Remove the runtime dependency on `@ex-machina/opencode-anthropic-auth`; users
+  must configure only this plugin to avoid provider-registration precedence.
+
+### Fixed
+
+- Prevent concurrent expired requests from consuming the same rotating refresh
+  token more than once.
+- Preserve the previous refresh token when Anthropic omits `refresh_token` from
+  a successful refresh response, while rejecting an explicitly malformed field.
+- Reject unexpected OAuth request origins before attaching a Bearer token.
+- Make streaming tool-name reversal safe when an SSE event is split across
+  arbitrary network chunks.
+
 ## [0.2.1] - 2026-07-25
 
 ### Fixed
@@ -81,7 +112,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `OPENCODE_ANTHROPIC_CONSOLE_CLAUDE_JSON`,
   `OPENCODE_ANTHROPIC_CONSOLE_TOOL_PREFIX`.
 
-[Unreleased]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.2.1
 [0.2.0]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.2.0
 [0.1.1]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.1.1
