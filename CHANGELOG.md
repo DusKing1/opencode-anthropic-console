@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-05
+
+### Fixed
+
+- Match Claude Code 2.1.220's user OAuth refresh request profile by sending the
+  required `oauth-2025-04-20` beta and Anthropic SDK 0.94.0 user-agent, fixing
+  `403 Request not allowed` responses after access-token expiry.
+
 ## [0.3.0] - 2026-08-04
 
 ### Added
@@ -112,7 +120,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `OPENCODE_ANTHROPIC_CONSOLE_CLAUDE_JSON`,
   `OPENCODE_ANTHROPIC_CONSOLE_TOOL_PREFIX`.
 
-[Unreleased]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.2.1
 [0.2.0]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.2.0
