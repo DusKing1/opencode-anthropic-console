@@ -14,7 +14,9 @@ export const OAUTH_SCOPES = [
 ] as const
 
 const TOKEN_RESPONSE_LIMIT = 64 * 1024
-const TOKEN_USER_AGENT = "axios/1.13.6"
+const TOKEN_EXCHANGE_USER_AGENT = "axios/1.13.6"
+const TOKEN_REFRESH_BETA = "oauth-2025-04-20"
+const TOKEN_REFRESH_USER_AGENT = "anthropic-sdk-typescript/0.94.0 userOAuthProvider"
 
 export type OAuthCredentials = {
   readonly type: "oauth"
@@ -146,13 +148,17 @@ function parseCredentials(value: unknown, fallbackRefresh?: string): OAuthCreden
 
 async function requestToken(grant: TokenGrant, fallbackRefresh?: string): Promise<OAuthCredentials> {
   try {
+    const headers = new Headers({ "content-type": "application/json" })
+    if (grant.grant_type === "refresh_token") {
+      headers.set("anthropic-beta", TOKEN_REFRESH_BETA)
+      headers.set("user-agent", TOKEN_REFRESH_USER_AGENT)
+    } else {
+      headers.set("accept", "application/json, text/plain, */*")
+      headers.set("user-agent", TOKEN_EXCHANGE_USER_AGENT)
+    }
     const response = await fetch(OAUTH_TOKEN_URL, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/plain, */*",
-        "user-agent": TOKEN_USER_AGENT,
-      },
+      headers,
       body: JSON.stringify(grant),
     })
     return parseCredentials(await readTokenResponse(response), fallbackRefresh)
