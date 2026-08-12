@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-12
+
+### Fixed
+
+- Restore the `Create an API Key` login method lost during the `0.3.0` auth
+  unification. Console OAuth now exchanges its temporary access token for an
+  `sk-ant-api03-...` key, which uses the existing attested Console API path.
+
 ## [0.3.1] - 2026-08-05
 
 ### Fixed
@@ -120,7 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `OPENCODE_ANTHROPIC_CONSOLE_CLAUDE_JSON`,
   `OPENCODE_ANTHROPIC_CONSOLE_TOOL_PREFIX`.
 
-[Unreleased]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/DusKing1/opencode-anthropic-console/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/DusKing1/opencode-anthropic-console/releases/tag/v0.2.1

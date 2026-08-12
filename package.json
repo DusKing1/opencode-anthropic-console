@@ -1,6 +1,6 @@
 {
   "name": "opencode-anthropic-console",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Complete OpenCode Anthropic authentication for Claude.ai OAuth and attested Console API keys.",
   "type": "module",
   "main": "./dist/index.js",
