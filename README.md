@@ -6,6 +6,8 @@
 A complete Anthropic authentication plugin for OpenCode. One package owns both:
 
 - **Claude.ai Pro/Max OAuth** with automatic, rotation-safe token refresh.
+- **Console OAuth API-key creation** that exchanges a browser login for an
+  `sk-ant-api03-...` key.
 - **Anthropic Console API keys** (`sk-ant-api03-...`) with the Claude Code
   client-attestation transforms required by Enterprise / Claude-Code-scoped keys.
 
@@ -32,6 +34,7 @@ to it. Configure only one `anthropic` auth hook.
 | Login method | Stored auth type | Authentication | Request profile |
 |---|---|---|---|
 | Claude Pro/Max | `oauth` | `Authorization: Bearer ...` | OAuth beta, Claude identity/billing, tool mapping |
+| Create an API Key | `api` | Console OAuth exchanged for `x-api-key` | Full API-key attestation including device/session metadata |
 | Console API Key | `api` | `x-api-key` | Full API-key attestation including device/session metadata |
 
 The profiles are intentionally separate. OAuth does not read `~/.claude.json`
@@ -42,7 +45,8 @@ normalization, temperature stripping, or the captured Opus harness.
 
 - OpenCode with the v1 plugin API
 - Node.js 20 or newer
-- A Claude.ai Pro/Max account for OAuth, or an Anthropic Console API key
+- A Claude.ai Pro/Max account for OAuth, or access to an Anthropic Console
+  organization for API-key creation/manual entry
 - For strict API-key attestation only: Claude Code run once on the machine, or
   `OPENCODE_ANTHROPIC_CONSOLE_USER_ID` set to its 64-character device ID
 
@@ -102,6 +106,17 @@ Ambiguous transport, malformed-response, and persistence failures are not
 blindly retried because Anthropic may already have consumed the rotating token.
 The affected token generation is blocked until credentials change or OpenCode
 restarts, preventing repeated `invalid_grant` cascades.
+
+### Create an API Key
+
+1. OpenCode displays a `platform.claude.com` authorization URL.
+2. Log in to Anthropic Console and authorize API-key creation.
+3. Paste the returned authorization code into OpenCode.
+4. The plugin exchanges the temporary OAuth access token for an
+   `sk-ant-api03-...` key and stores it as API-key authentication.
+
+Inference then uses `x-api-key` and the Console API request profile. It does not
+route inference through Claude.ai OAuth.
 
 ### Console API Key
 
