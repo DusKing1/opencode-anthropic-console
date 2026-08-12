@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto"
 import type { AuthOAuthResult, Plugin } from "@opencode-ai/plugin"
 import type { Auth, Provider } from "@opencode-ai/sdk"
 import {
+  CONSOLE_OAUTH_AUTHORIZE_URL,
+  createConsoleApiKey,
   createOAuthAuthorization,
   exchangeOAuthCode,
   OAuthFlowError,
@@ -66,6 +68,31 @@ async function authorizeOAuth(): Promise<AuthOAuthResult> {
         access: credentials.access,
         expires: credentials.expires,
       }
+    } catch (error) {
+      if (error instanceof OAuthFlowError) return { type: "failed" as const }
+      throw error
+    }
+  }
+
+  return {
+    url: authorization.url,
+    instructions: "Paste the authorization code here:",
+    method: "code",
+    callback(input: string) {
+      exchangePromise ??= complete(input)
+      return exchangePromise
+    },
+  }
+}
+
+async function authorizeConsoleApiKey(): Promise<AuthOAuthResult> {
+  const authorization = createOAuthAuthorization(CONSOLE_OAUTH_AUTHORIZE_URL)
+  let exchangePromise: ReturnType<AuthOAuthResult["callback"]> | undefined
+
+  const complete = async (input: string) => {
+    try {
+      const credentials = await exchangeOAuthCode(input, authorization)
+      return { type: "success" as const, key: await createConsoleApiKey(credentials.access) }
     } catch (error) {
       if (error instanceof OAuthFlowError) return { type: "failed" as const }
       throw error
@@ -192,6 +219,11 @@ export const AnthropicConsoleAuthPlugin: Plugin = async ({ client }) => ({
         type: "oauth",
         label: "Claude Pro/Max",
         authorize: authorizeOAuth,
+      },
+      {
+        type: "oauth",
+        label: "Create an API Key",
+        authorize: authorizeConsoleApiKey,
       },
       {
         type: "api",

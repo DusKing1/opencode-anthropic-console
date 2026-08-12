@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto"
 
 export const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 export const OAUTH_AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
+export const CONSOLE_OAUTH_AUTHORIZE_URL = "https://platform.claude.com/oauth/authorize"
 export const OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 export const OAUTH_REDIRECT_URI = "https://platform.claude.com/oauth/code/callback"
 export const OAUTH_SCOPES = [
@@ -14,6 +15,7 @@ export const OAUTH_SCOPES = [
 ] as const
 
 const TOKEN_RESPONSE_LIMIT = 64 * 1024
+const API_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
 const TOKEN_EXCHANGE_USER_AGENT = "axios/1.13.6"
 const TOKEN_REFRESH_BETA = "oauth-2025-04-20"
 const TOKEN_REFRESH_USER_AGENT = "anthropic-sdk-typescript/0.94.0 userOAuthProvider"
@@ -47,6 +49,9 @@ type TokenGrant =
     }
 
 type OAuthFailureKind =
+  | "api_key_http"
+  | "api_key_response"
+  | "api_key_transport"
   | "invalid_callback"
   | "state_mismatch"
   | "token_transport"
@@ -96,11 +101,13 @@ function createVerifier(): string {
   return randomBytes(64).toString("base64url")
 }
 
-export function createOAuthAuthorization(): OAuthAuthorization {
+export function createOAuthAuthorization(
+  authorizeUrl: string = OAUTH_AUTHORIZE_URL,
+): OAuthAuthorization {
   const verifier = createVerifier()
   const state = randomBytes(32).toString("base64url")
   const challenge = createHash("sha256").update(verifier).digest("base64url")
-  const url = new URL(OAUTH_AUTHORIZE_URL)
+  const url = new URL(authorizeUrl)
   url.searchParams.set("code", "true")
   url.searchParams.set("client_id", OAUTH_CLIENT_ID)
   url.searchParams.set("response_type", "code")
@@ -182,6 +189,37 @@ export async function exchangeOAuthCode(
     redirect_uri: OAUTH_REDIRECT_URI,
     code_verifier: authorization.verifier,
   })
+}
+
+export async function createConsoleApiKey(access: string): Promise<string> {
+  try {
+    const response = await fetch(API_KEY_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${access}`,
+      },
+    })
+    if (!response.ok) throw new OAuthFlowError("api_key_http", response.status)
+    const text = await response.text()
+    if (text.length > TOKEN_RESPONSE_LIMIT) throw new OAuthFlowError("api_key_response")
+
+    let value: unknown
+    try {
+      value = JSON.parse(text)
+    } catch {
+      throw new OAuthFlowError("api_key_response")
+    }
+    if (!isRecord(value) || typeof value.raw_key !== "string") {
+      throw new OAuthFlowError("api_key_response")
+    }
+    const key = value.raw_key.trim()
+    if (!key.startsWith("sk-ant-api03-")) throw new OAuthFlowError("api_key_response")
+    return key
+  } catch (error) {
+    if (error instanceof OAuthFlowError) throw error
+    throw new OAuthFlowError("api_key_transport")
+  }
 }
 
 export function refreshOAuthToken(refresh: string): Promise<OAuthCredentials> {
