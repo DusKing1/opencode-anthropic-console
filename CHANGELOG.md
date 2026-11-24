@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add an OpenCode 2 plugin definition. The package now default-exports a V2
+  `{ id, setup(ctx) }` definition (id `opencode-anthropic-console`) alongside the
+  existing V1 hooks object, exposed through `server()`. OpenCode 2.x loads the
+  definition, OpenCode 1.18.29+ still calls `server()`.
+- Port the auth surface to the V2 context: integration methods are registered
+  through `integration.transform`, and the attested request shaping (headers,
+  `/v1/messages` body, streamed tool-name prefix) runs from
+  `session.hook("http.request")` / `session.hook("http.response")` instead of a
+  private `fetch`. OAuth rotation now uses the integration `refresh` callback, so
+  the host persists the rotated token.
+
+### Fixed
+
+- Zero subscription model pricing through `model.cost` as the tier array V2
+  expects (`[{ tier, input, output, cache }]`), preserving tier markers. Writing
+  the V1 object shape made `GET /api/model` fail with
+  `Expected array at ["data"][N]["cost"]` and crashed request preparation with
+  `e.filter is not a function`.
+- Track Claude Code `2.1.331` instead of `2.1.220`, matching the installed CLI as
+  the constants file asks for.
+
 ## [0.3.2] - 2026-08-12
 
 ### Fixed

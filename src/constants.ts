@@ -9,7 +9,7 @@
  * heuristics.
  */
 
-export const CLAUDE_CODE_VERSION = "2.1.220"
+export const CLAUDE_CODE_VERSION = "2.1.331"
 export const CLAUDE_CODE_ENTRYPOINT = "sdk-cli"
 
 /**
