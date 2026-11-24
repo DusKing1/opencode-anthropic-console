@@ -52,11 +52,13 @@
     "node": ">=20"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "*"
+    "@opencode-ai/plugin": "*",
+    "@opencode/plugin": "^2.4.1"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.4.7",
     "@types/node": "^22.0.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "@opencode/plugin": "^2.4.1"
   }
 }
